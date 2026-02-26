@@ -11,7 +11,7 @@ function findCollections(dir: string): string[] {
     const filePath = path.join(dir, file);
     const stat = fs.statSync(filePath);
 
-    if (stat.isDirectory()) {
+    if (stat?.isDirectory()) {
       results = results.concat(findCollections(filePath));
     } else if (file.endsWith(".postman_collection.json")) {
       results.push(filePath);
@@ -22,31 +22,46 @@ function findCollections(dir: string): string[] {
 }
 
 async function runCollection(collectionPath: string, environmentPath: string) {
-  return new Promise<void>((resolve, reject) => {
-    const collection = JSON.parse(fs.readFileSync(collectionPath, "utf-8"));
-    const environment = JSON.parse(fs.readFileSync(environmentPath, "utf-8"));
+  return new Promise<{ success: boolean; path: string; error?: string }>(
+    (resolve) => {
+      const collection = JSON.parse(fs.readFileSync(collectionPath, "utf-8"));
+      const environment = JSON.parse(fs.readFileSync(environmentPath, "utf-8"));
 
-    console.log("=====================================");
-    console.log(`Running: ${collectionPath}`);
-    console.log("=====================================");
+      console.log("\n=====================================");
+      console.log(`Running: ${collectionPath}`);
+      console.log("=====================================\n");
 
-    newman.run(
-      {
-        collection,
-        environment,
-        reporters: ["cli"],
-      },
-      (err, summary) => {
-        if (err) return reject(err);
+      newman.run(
+        {
+          collection,
+          environment,
+          reporters: ["cli"],
+        },
+        (err, summary) => {
+          if (err) {
+            console.error(`\n❌ Error running ${collectionPath}:`, err.message);
+            return resolve({
+              success: false,
+              path: collectionPath,
+              error: err.message,
+            });
+          }
 
-        if (summary?.run.failures.length) {
-          return reject(new Error(`Failures in ${collectionPath}`));
-        }
+          if (summary?.run.failures.length) {
+            console.error(`\n❌ Failures in ${collectionPath}`);
+            return resolve({
+              success: false,
+              path: collectionPath,
+              error: "Some tests failed",
+            });
+          }
 
-        resolve();
-      },
-    );
-  });
+          console.log(`\n✅ ${collectionPath} passed`);
+          resolve({ success: true, path: collectionPath });
+        },
+      );
+    },
+  );
 }
 
 async function main() {
@@ -78,12 +93,42 @@ async function main() {
     process.exit(0);
   }
 
+  const results: { path: string; success: boolean; error?: string }[] = [];
+
   for (const collection of collections) {
-    await runCollection(collection, environmentPath);
+    const result = await runCollection(collection, environmentPath);
+    results.push(result);
   }
 
-  console.log("✅ All collections executed successfully");
-  process.exit(0);
+  console.log("\n=====================================");
+  const total = results?.length ?? 0;
+  if (total) {
+    const passed = results.filter((r) => r.success).length;
+    const failed = results.filter((r) => !r.success).length;
+    console.log(`Total collections: ${total} (✅ ${passed}; ❌ ${failed})`);
+  } else {
+    console.log("Total collections: 0");
+  }
+  console.log("\nExecution summary:");
+
+  let anyFailed = false;
+  results.forEach((r) => {
+    if (r.success) {
+      console.log(`✅ ${r.path}`);
+    } else {
+      console.log(`❌ ${r.path} → ${r.error}`);
+      anyFailed = true;
+    }
+  });
+  console.log("\n=====================================");
+
+  if (anyFailed) {
+    console.error("❌ Some collections failed.");
+    process.exit(1);
+  } else {
+    console.log("✅ All collections executed successfully.");
+    process.exit(0);
+  }
 }
 
 main().catch((err) => {
