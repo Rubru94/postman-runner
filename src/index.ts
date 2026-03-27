@@ -2,6 +2,12 @@ import newman from "newman";
 import fs from "fs";
 import path from "path";
 
+/**
+ * Recursively finds all Postman collection files in a directory.
+ *
+ * @param {string} dir - Directory path to search for collections.
+ * @returns {string[]} Array of collection file paths.
+ */
 function findCollections(dir: string): string[] {
   let results: string[] = [];
 
@@ -21,49 +27,62 @@ function findCollections(dir: string): string[] {
   return results;
 }
 
-async function runCollection(collectionPath: string, environmentPath: string) {
-  return new Promise<{ success: boolean; path: string; error?: string }>(
-    (resolve) => {
-      const collection = JSON.parse(fs.readFileSync(collectionPath, "utf-8"));
-      const environment = JSON.parse(fs.readFileSync(environmentPath, "utf-8"));
+/**
+ * Runs a single Postman collection with a given environment.
+ *
+ * @param {string} collectionPath - Path to the Postman collection JSON file.
+ * @param {string} environmentPath - Path to the Postman environment JSON file.
+ * @returns {Promise<{ success: boolean; path: string; error?: string }>} Result of the collection run.
+ */
+async function runCollection(
+  collectionPath: string,
+  environmentPath: string,
+): Promise<{ success: boolean; path: string; error?: string }> {
+  return new Promise((resolve) => {
+    const collection = JSON.parse(fs.readFileSync(collectionPath, "utf-8"));
+    const environment = JSON.parse(fs.readFileSync(environmentPath, "utf-8"));
 
-      console.log("\n=====================================");
-      console.log(`Running: ${collectionPath}`);
-      console.log("=====================================\n");
+    console.log("\n=====================================");
+    console.log(`Running: ${collectionPath}`);
+    console.log("=====================================\n");
 
-      newman.run(
-        {
-          collection,
-          environment,
-          reporters: ["cli"],
-        },
-        (err, summary) => {
-          if (err) {
-            console.error(`\n❌ Error running ${collectionPath}:`, err.message);
-            return resolve({
-              success: false,
-              path: collectionPath,
-              error: err.message,
-            });
-          }
+    newman.run(
+      {
+        collection,
+        environment,
+        reporters: ["cli"],
+      },
+      (err, summary) => {
+        if (err) {
+          console.error(`\n❌ Error running ${collectionPath}:`, err.message);
+          return resolve({
+            success: false,
+            path: collectionPath,
+            error: err.message,
+          });
+        }
 
-          if (summary?.run.failures.length) {
-            console.error(`\n❌ Failures in ${collectionPath}`);
-            return resolve({
-              success: false,
-              path: collectionPath,
-              error: "Some tests failed",
-            });
-          }
+        if (summary?.run.failures.length) {
+          console.error(`\n❌ Failures in ${collectionPath}`);
+          return resolve({
+            success: false,
+            path: collectionPath,
+            error: "Some tests failed",
+          });
+        }
 
-          console.log(`\n✅ ${collectionPath} passed`);
-          resolve({ success: true, path: collectionPath });
-        },
-      );
-    },
-  );
+        console.log(`\n✅ ${collectionPath} passed`);
+        resolve({ success: true, path: collectionPath });
+      },
+    );
+  });
 }
 
+/**
+ * Main entry point of the Postman CLI runner.
+ *
+ * Reads command-line arguments, finds collections, runs them, and outputs a summary.
+ */
 async function main() {
   const args = process.argv.slice(2);
 
@@ -102,13 +121,10 @@ async function main() {
 
   console.log("\n=====================================");
   const total = results?.length ?? 0;
-  if (total) {
-    const passed = results.filter((r) => r.success).length;
-    const failed = results.filter((r) => !r.success).length;
-    console.log(`Total collections: ${total} (✅ ${passed}; ❌ ${failed})`);
-  } else {
-    console.log("Total collections: 0");
-  }
+  const passed = results?.filter((r) => r.success).length ?? 0;
+  const failed = results?.filter((r) => !r.success).length ?? 0;
+
+  console.log(`Total collections: ${total} (✅ ${passed}; ❌ ${failed})`);
   console.log("\nExecution summary:");
 
   let anyFailed = false;
